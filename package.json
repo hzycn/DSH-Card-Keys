@@ -1,7 +1,7 @@
 {
   "name": "@hzy/dsh-card-keys",
   "version": "1.0.0",
-  "description": "Keyboard control for DSH Web question and approval cards, with one on/off switch",
+  "description": "Keyboard control for DSH question and approval cards, with one on/off switch",
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",

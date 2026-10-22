@@ -7,7 +7,7 @@ import { transform } from 'lightningcss'
 const CSS_VIRTUAL_PREFIX = '\0dsh-card-keys-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
-/** Browser module identities supplied by the DSH Web shell's module table. */
+/** Browser module identities supplied by the DSH shell's module table. */
 export const CLIENT_EXTERNALS = [
   'react',
   'react/jsx-runtime',
