@@ -53,7 +53,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install-to-dsh.ps1
 
 ### CLI 版（`dsh plugin`）
 
-如果是 CLI 版 DSH Web 组合，仍按原方式安装本目录构建产物（`cordis.patch.yml` 已就绪）：
+如果是 CLI 版 DSH 组合，仍按原方式安装本目录构建产物（`cordis.patch.yml` 已就绪）：
 
 ```yaml
 - insert:
@@ -74,7 +74,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install-to-dsh.ps1
 
 ## 兼容性
 
-面向 DSH Web 组合 `0.2.1-rc.2`（同上游 `>=0.2.0-rc.1 <1.0.0`）；浏览器产物依赖 DSH boot 注入，无法脱离 DSH Web 使用。
+面向 DSH 组合 `0.2.1-rc.2`（同上游 `>=0.2.0-rc.1 <1.0.0`）；浏览器产物依赖 DSH boot 注入，无法脱离 DSH 使用。
 
 插件依赖官方卡片的以下 DOM 约定，官方改动时需要同步更新：`[data-question-key]` / `[data-approval-key]` 外层、`button[role="radio"|"checkbox"]` 选项、`[data-question-scroll]` 正文、`footer` 动作行、`header` 关闭按钮。
 
@@ -89,7 +89,7 @@ pnpm run bundle
 
 `tests/card-fixture.ts` 按官方卡片的真实结构搭建夹具，`tests/install.client.spec.ts` 用假的 shortcuts 服务回放仲裁输入，覆盖数字选择、方向键、回车、Esc、审批 1/2、以及输入框/弹窗/修饰键/输入法这些不该抢键的场景。
 
-浏览器验收需通过真实 DSH Web 组合进行；`apps/web` Vite 入口不是本插件的验证目标。
+浏览器验收需通过真实 DSH 组合进行；`apps/web` Vite 入口不是本插件的验证目标。
 
 ## License
 
