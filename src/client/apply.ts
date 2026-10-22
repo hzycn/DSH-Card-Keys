@@ -13,7 +13,7 @@ import { SHORTCUTS_SETTINGS_NAMESPACE } from '../settings-namespace.js'
 
 const PACKAGE_NAME = '@hzy/dsh-card-keys'
 
-/** Only services this plugin truly needs; `shortcuts` is optional so a Web shell without it still loads. */
+/** Only services this plugin truly needs; `shortcuts` is optional so a shell without it still loads. */
 export const inject = ['slots', 'locale', 'configForms'] as const
 
 export function apply(ctx: Context): void {

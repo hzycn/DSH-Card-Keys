@@ -5,8 +5,7 @@
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",
-    "keyboard-shortcuts",
-    "web-client"
+    "keyboard-shortcuts"
   ],
   "type": "module",
   "main": "lib/index.js",

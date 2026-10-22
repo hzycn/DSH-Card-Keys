@@ -1,6 +1,6 @@
 # DSH-Card-Keys
 
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) Web 的 DSH 插件，为 DSH 的选项卡片（提问）和权限卡片（审批）提供数字键、方向键的快捷操作，**默认开启**。只做两件事：
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 DSH 插件，为 DSH 的选项卡片（提问）和权限卡片（审批）提供数字键、方向键的快捷操作，**默认开启**。只做两件事：
 
 1. **提问 / 审批卡片的键盘操作** — 数字键 `1`–`9` 直接选择选项，`←` `→` `↑` `↓` 在选项与按钮间移动，`Enter` 确认，`Esc` 关闭提问卡片。审批卡片 `1` = 允许一次，`2` = 拒绝；永远不会在没有按键的情况下自动授权。
 2. **一个总开关** — 在 **插件管理 → 本插件** 的设置页里打开或关闭上面这个功能。
