@@ -1,0 +1,14 @@
+node_modules/
+lib/
+dist/
+*.tgz
+.DS_Store
+*.log
+.worktrees/
+.superpowers/
+.pnpm_*/
+AGENTS.md
+docs/superpowers/
+.browser-acceptance/
+.manual-verify/
+/.memsearch/
