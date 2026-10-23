@@ -60,6 +60,56 @@ export function optionButtons(card: HTMLElement): HTMLElement[] {
   return enabled([...card.querySelectorAll<HTMLElement>('button[role="radio"], button[role="checkbox"]')])
 }
 
+/**
+ * How many questions the card currently holds, from its `n / total` pager label.
+ *
+ * The shipped card renders `index + 1` and the question count in a footer `span`. A batch of
+ * more than one is the case where selecting an option also turns the page, so a caller can
+ * tell "one question" from "the first of several".
+ *
+ * @param card - the `[data-question-key]` frame.
+ * @returns the total question count, or 1 when the pager cannot be read.
+ */
+export function questionCount(card: HTMLElement): number {
+  const footer = card.querySelector('footer')
+  if (footer === null) return 1
+  const match = /(\d+)\s*\/\s*(\d+)/u.exec(footer.textContent ?? '')
+  if (match === null) return 1
+  const total = Number(match[2])
+  return Number.isFinite(total) && total > 0 ? total : 1
+}
+
+/**
+ * Whether an element is a selectable option rather than a pager or answer field.
+ *
+ * The arrow ring walks the options and then the footer controls; only the options carry an
+ * answer, so only they are selected while moving.
+ *
+ * @param element - a control inside the card.
+ * @returns whether it is a radio or checkbox option button.
+ */
+export function isOption(element: Element): boolean {
+  if (!(element instanceof HTMLElement) || element.tagName !== 'BUTTON') return false
+  const role = element.getAttribute('role')
+  return role === 'radio' || role === 'checkbox'
+}
+
+/**
+ * Whether the question currently shown already carries an answer.
+ *
+ * The shipped card prefills a free-text draft and marks chosen options with `aria-checked`,
+ * so either one means the user — or the model's own recommendation — already decided, and
+ * a default must not overwrite it.
+ *
+ * @param card - the `[data-question-key]` frame.
+ * @returns whether any option is checked or the custom answer has text.
+ */
+export function questionAnswered(card: HTMLElement): boolean {
+  if (card.querySelector('button[role="radio"][aria-checked="true"], button[role="checkbox"][aria-checked="true"]') !== null) return true
+  const custom = card.querySelector<HTMLInputElement | HTMLTextAreaElement>('[data-question-scroll] input, [data-question-scroll] textarea')
+  return custom !== null && custom.value.trim() !== ''
+}
+
 /** The approval card's decision buttons: the trailing action row is reject, then allow once. */
 export function approvalButtons(card: HTMLElement): { allow?: HTMLElement; reject?: HTMLElement } {
   const buttons = enabled([...card.querySelectorAll<HTMLElement>('button')])
@@ -79,12 +129,28 @@ export function focusRing(card: InteractionCard): HTMLElement[] {
   return ring
 }
 
-/** The card's confirming action: the last footer button, or the approval's allow button. */
+/**
+ * The card's confirming action: the trailing primary button.
+ *
+ * The footer ends with `Skip`, then the primary action (`Next` / `Submit`). The primary is
+ * located by position, never by "the last enabled button": when nothing is selected the
+ * shipped card disables the primary, and a last-enabled search would then fall through to
+ * `Skip` — making `Enter` silently skip a question instead of doing nothing.
+ *
+ * @param card - the live interaction card.
+ * @returns the primary button, or undefined when the card has none (or it is disabled).
+ */
 export function primaryButton(card: InteractionCard): HTMLElement | undefined {
   if (card.kind === 'approval') return approvalButtons(card.element).allow
   const footer = card.element.querySelector('footer')
   if (footer === null) return undefined
-  return enabled([...footer.querySelectorAll<HTMLElement>('button')]).at(-1)
+  const buttons = [...footer.querySelectorAll<HTMLElement>('button')]
+  const primary = buttons.at(-1)
+  if (primary === undefined) return undefined
+  // A disabled primary must stay disabled: its own `disabled` state is the card's own answer
+  // to "is this question complete yet", and calling click() would bypass it.
+  if ((primary as { readonly disabled?: boolean }).disabled === true) return undefined
+  return primary
 }
 
 /** The header close control (minimize is the first icon button, close is the last). */

@@ -16,6 +16,10 @@ export interface QuestionFixture {
   readonly skip: HTMLButtonElement
   readonly primary: HTMLButtonElement
   readonly close: HTMLButtonElement
+  /** Rewrite the footer pager, standing in for the shipped card turning to another question. */
+  readonly setPage: (index: number, total: number) => void
+  /** The page index the pager currently shows, or null before a pager exists. */
+  readonly page: () => number | null
   readonly clicks: string[]
 }
 
@@ -31,8 +35,16 @@ function track(clicks: string[], button: HTMLButtonElement, name: string): HTMLB
   return button
 }
 
-/** Mount one ask_user_question card and record the clicks performed on it. */
-export function mountQuestionCard(root: ParentNode = document.body, key = 'q1'): QuestionFixture {
+/**
+ * Mount one ask_user_question card and record the clicks performed on it.
+ *
+ * @param root - where to mount the frame.
+ * @param key - the card's `data-question-key` value.
+ * @param page - the pager label; `3` renders the shipped `n / 3` multi-question pager, so a
+ *   fixture can represent any page of a batch.
+ */
+export function mountQuestionCard(root: ParentNode = document.body, key = 'q1', page = 1): QuestionFixture {
+  const pager = page > 1 ? `${String(page > 1 ? 1 : 1)} / ${String(page)}` : ''
   const host = document.createElement('div')
   host.innerHTML = `
     <div data-question-key="${key}">
@@ -55,6 +67,7 @@ export function mountQuestionCard(root: ParentNode = document.body, key = 'q1'):
         <footer>
           <div>
             <button type="button" aria-label="previous">&lt;</button>
+            ${pager === '' ? '' : `<span>${pager}</span>`}
             <button type="button" aria-label="next">&gt;</button>
           </div>
           <div role="status"></div>
@@ -81,6 +94,15 @@ export function mountQuestionCard(root: ParentNode = document.body, key = 'q1'):
     skip: track(clicks, footerButtons[2]!, 'skip'),
     primary: track(clicks, footerButtons[3]!, 'primary'),
     close: track(clicks, card.querySelector('header button:last-of-type')!, 'close'),
+    setPage(index: number, total: number): void {
+      const span = card.querySelector('footer span')
+      if (span !== null) span.textContent = `${String(index)} / ${String(total)}`
+    },
+    page(): number | null {
+      const span = card.querySelector('footer span')
+      const match = span === null ? null : /(\d+)\s*\/\s*(\d+)/u.exec(span.textContent ?? '')
+      return match === null ? null : Number(match[1])
+    },
     clicks,
   }
   options.forEach((option, index) => track(clicks, option, `option-${String(index + 1)}`))

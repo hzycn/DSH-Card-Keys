@@ -6,12 +6,17 @@
  * performs a plain click or focus move on the shipped card markup. */
 
 import type { Shortcuts } from '@deepseek-ai/dsh-client-shortcuts/client'
-import { approvalButtons, activeCard, dismissButton, focusIsControl, focusRing, optionButtons, primaryButton } from './dom.js'
+import { approvalButtons, activeCard, dismissButton, focusIsControl, focusRing, isOption, optionButtons, primaryButton } from './dom.js'
 import type { InteractionCard } from './dom.js'
+import { scheduleComposerFocus } from './composer-focus.js'
 import { createSelectOptionCommand } from './fixed.js'
 import type { FixedKeyInput } from './fixed.js'
+import { focusApprovalAllow } from './focus.js'
 import { planKey } from './plan.js'
 import type { CardAction, KeyFacts } from './plan.js'
+import { selectWithoutPaging } from './paging.js'
+import { selectQuestionDefault } from './question-default.js'
+import { watchCardDefaults } from './watch.js'
 
 export interface CardKeysOptions {
   /** Localized label for the official keyboard settings row. */
@@ -41,7 +46,24 @@ export function installCardKeys(shortcuts: Shortcuts, options: CardKeysOptions):
     if (input.type !== 'keydown') return
     if (handleInput(input)) input.consume()
   })
-  return () => { offInput(); offCommand?.() }
+  // Each card opens in a usable state: the approval card on its allow button, the question
+  // card with its first option already selected. The watcher decides which card and when —
+  // exactly once per card — because a takeover can mount hidden and become visible a frame
+  // later, and because a default may have to wait for the right moment. The callback's result
+  // must be propagated: `false` means "not yet, retry", and swallowing it here made the
+  // watcher write a card off after the first declined attempt.
+  /** Cancels a scheduled composer-focus retry; replaced on every card close. */
+  let composerRetry: (() => void) | undefined
+  const offDefaults = watchCardDefaults({
+    onCard: card => (card.kind === 'approval'
+      ? focusApprovalAllow(card, document)
+      : selectQuestionDefault(card, document)),
+    // Answering the last card removes the takeover and focus falls to the page body. Hand the
+    // keyboard back so the user can keep typing without reaching for the mouse. The helper is
+    // conservative: it only acts when focus is truly loose and the composer is editable.
+    onAllCardsClosed: () => { composerRetry?.(); composerRetry = scheduleComposerFocus(document) },
+  })
+  return () => { composerRetry?.(); offDefaults(); offInput(); offCommand?.() }
 }
 
 /**
@@ -104,7 +126,17 @@ export function perform(action: CardAction, card: InteractionCard): boolean {
       const next = current < 0
         ? (action.delta > 0 ? 0 : ring.length - 1)
         : (current + action.delta + ring.length) % ring.length
-      ring[next]?.focus()
+      const target = ring[next]
+      if (target === undefined) return false
+      target.focus()
+      // Landing on an option also selects it: the ring and the answer stay together, so an
+      // arrow key is a complete way to choose and `Enter` then submits what the user sees.
+      // Only options are selected; the footer pager and the answer field keep focus only.
+      //
+      // Arrows never turn the page, though. On a single-select multi-question card the shipped
+      // `choose` advances by itself, which would make `↓` mean "next question" instead of
+      // "next option" — so the selection is made and the page is put back.
+      if (card.kind === 'question' && isOption(target)) selectWithoutPaging(card.element, target)
       return true
     }
     case 'activate': {

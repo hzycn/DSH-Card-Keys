@@ -56,6 +56,22 @@ describe('question card controls', () => {
     expect(primaryButton({ kind: 'question', element: fixture.card })).toBe(fixture.primary)
     expect(dismissButton(fixture.card)).toBe(fixture.close)
   })
+
+  it('reports no primary while the card has nothing to confirm', () => {
+    // This is the "greyed out primary" case: nothing is selected, so the shipped card disables
+    // Submit/Next. Reporting `Skip` here instead would make Enter silently skip the question.
+    const fixture = mountQuestionCard()
+    fixture.primary.disabled = true
+    expect(primaryButton({ kind: 'question', element: fixture.card })).toBeUndefined()
+  })
+
+  it('never falls through to Skip when the primary is disabled', () => {
+    const fixture = mountQuestionCard()
+    fixture.primary.disabled = true
+    const primary = primaryButton({ kind: 'question', element: fixture.card })
+    expect(primary).not.toBe(fixture.skip)
+    expect(primary).toBeUndefined()
+  })
 })
 
 describe('approval card controls', () => {
