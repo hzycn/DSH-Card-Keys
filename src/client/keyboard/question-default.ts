@@ -19,7 +19,7 @@
  * `watchCardDefaults` decides which card and when. A page turn re-renders inside the same
  * card element, so the watcher can treat the whole batch as one card. */
 
-import { optionButtons, questionAnswered, questionCount } from './dom.js'
+import { isMultiSelect, optionButtons, questionAnswered, questionCount } from './dom.js'
 import type { InteractionCard } from './dom.js'
 
 /** A dialog or menu owns the keyboard: a default click behind it would be invisible. */
@@ -62,6 +62,12 @@ export function selectQuestionDefault(card: InteractionCard, root: Document): bo
   const first = optionButtons(card.element)[0]
   // A locked card (busy, plan review) renders disabled options and must not be touched.
   if (first === undefined) return false
+
+  // A multi-select question gets nothing: checking its first option would put an answer in the
+  // box that the user never chose, and multi-select answers are additive — the user builds them
+  // up with Space. It also takes no ring, so the card opens neutral and the arrows are the
+  // starting point rather than a pre-made decision.
+  if (isMultiSelect(card.element)) return true
 
   // A multi-question card gets nothing at all — no selection and no ring. It cannot take a
   // selection: selecting on such a card makes the shipped `choose` handler turn the page by

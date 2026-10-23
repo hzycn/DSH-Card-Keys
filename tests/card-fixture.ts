@@ -42,9 +42,18 @@ function track(clicks: string[], button: HTMLButtonElement, name: string): HTMLB
  * @param key - the card's `data-question-key` value.
  * @param page - the pager label; `3` renders the shipped `n / 3` multi-question pager, so a
  *   fixture can represent any page of a batch.
+ * @param multiSelect - render the shipped multi-select markup: `role="group"` around
+ *   `role="checkbox"` options instead of `role="radiogroup"` around `role="radio"`.
  */
-export function mountQuestionCard(root: ParentNode = document.body, key = 'q1', page = 1): QuestionFixture {
+export function mountQuestionCard(
+  root: ParentNode = document.body,
+  key = 'q1',
+  page = 1,
+  multiSelect = false,
+): QuestionFixture {
   const pager = page > 1 ? `${String(page > 1 ? 1 : 1)} / ${String(page)}` : ''
+  const groupRole = multiSelect ? 'group' : 'radiogroup'
+  const optionRole = multiSelect ? 'checkbox' : 'radio'
   const host = document.createElement('div')
   host.innerHTML = `
     <div data-question-key="${key}">
@@ -57,10 +66,10 @@ export function mountQuestionCard(root: ParentNode = document.body, key = 'q1', 
           </div>
         </header>
         <div data-question-scroll="true">
-          <div role="radiogroup">
-            <button type="button" role="radio" aria-checked="false">1 Option A</button>
-            <button type="button" role="radio" aria-checked="false">2 Option B</button>
-            <button type="button" role="radio" aria-checked="false">3 Option C</button>
+          <div role="${groupRole}">
+            <button type="button" role="${optionRole}" aria-checked="false">1 Option A</button>
+            <button type="button" role="${optionRole}" aria-checked="false">2 Option B</button>
+            <button type="button" role="${optionRole}" aria-checked="false">3 Option C</button>
             <div><input aria-label="custom answer" /></div>
           </div>
         </div>
@@ -83,7 +92,10 @@ export function mountQuestionCard(root: ParentNode = document.body, key = 'q1', 
   const card = container
   const clicks: string[] = []
   const buttons = [...card.querySelectorAll<HTMLButtonElement>('button')]
-  const options = buttons.filter(button => button.getAttribute('role') === 'radio')
+  const options = buttons.filter(button => {
+    const role = button.getAttribute('role')
+    return role === 'radio' || role === 'checkbox'
+  })
   const footerButtons = [...card.querySelectorAll<HTMLButtonElement>('footer button')]
   const fixture: QuestionFixture = {
     card,

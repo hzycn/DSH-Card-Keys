@@ -10,6 +10,7 @@ export type CardAction =
   | { readonly type: 'selectOption'; readonly index: number }
   | { readonly type: 'approval'; readonly outcome: 'allow' | 'reject' }
   | { readonly type: 'moveFocus'; readonly delta: 1 | -1 }
+  | { readonly type: 'toggleOption' }
   | { readonly type: 'activate' }
   | { readonly type: 'dismiss' }
   | { readonly type: 'none' }
@@ -31,6 +32,8 @@ export interface KeyFacts {
   readonly cardKind: CardKind
   /** Selectable option buttons the card currently shows (question cards only). */
   readonly optionCount: number
+  /** Whether the question on screen accepts several answers. */
+  readonly multiSelect: boolean
   /** Whether focus is inside the card element. */
   readonly focusInsideCard: boolean
   /** Whether focus is on a control that already handles the key itself. */
@@ -68,6 +71,20 @@ export function planKey(facts: KeyFacts): CardAction {
 
   if (facts.code === 'ArrowDown' || facts.code === 'ArrowRight') return { type: 'moveFocus', delta: 1 }
   if (facts.code === 'ArrowUp' || facts.code === 'ArrowLeft') return { type: 'moveFocus', delta: -1 }
+
+  // Space toggles the option the ring is on, in a multi-select question. The arrows only move
+  // the ring there — toggling while moving would check every option browsed over — so this is
+  // how the user deliberately picks. A single-answer question needs no toggle: its option is
+  // chosen the moment the ring lands on it.
+  //
+  // This deliberately ignores `focusIsControl`: that guard exists so a control which already
+  // handles a key does not also get the plugin's action, but these option buttons only listen
+  // for Enter. Leaving Space to the browser's native button activation would make the key
+  // behave differently depending on whether focus happens to sit on an option, and the plugin
+  // could not report whether the toggle happened.
+  if (facts.code === 'Space' && facts.cardKind === 'question' && facts.multiSelect) {
+    return { type: 'toggleOption' }
+  }
 
   if (facts.code === 'Enter' || facts.code === 'NumpadEnter') {
     // An approval grants a tool permission: only the focused card may confirm it.

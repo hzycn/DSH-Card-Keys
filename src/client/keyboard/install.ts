@@ -6,7 +6,7 @@
  * performs a plain click or focus move on the shipped card markup. */
 
 import type { Shortcuts } from '@deepseek-ai/dsh-client-shortcuts/client'
-import { approvalButtons, activeCard, dismissButton, focusIsControl, focusRing, isOption, optionButtons, primaryButton } from './dom.js'
+import { approvalButtons, activeCard, dismissButton, focusIsControl, focusRing, isMultiSelect, isOption, optionButtons, primaryButton } from './dom.js'
 import type { InteractionCard } from './dom.js'
 import { scheduleComposerFocus } from './composer-focus.js'
 import { createSelectOptionCommand } from './fixed.js'
@@ -97,6 +97,7 @@ export function factsFor(input: FixedKeyInput, card: InteractionCard): KeyFacts 
     meta: input.gesture.meta,
     cardKind: card.kind,
     optionCount: card.kind === 'question' ? optionButtons(card.element).length : 0,
+    multiSelect: card.kind === 'question' && isMultiSelect(card.element),
     focusInsideCard,
     focusIsControl: focusInsideCard && focusIsControl(active),
   }
@@ -119,6 +120,14 @@ export function perform(action: CardAction, card: InteractionCard): boolean {
       target.click()
       return true
     }
+    case 'toggleOption': {
+      // Toggle whatever option the ring is on. Nothing focused inside the card means there is
+      // no target, so the key keeps its normal job.
+      const active = document.activeElement
+      if (!(active instanceof HTMLElement) || !isOption(active)) return false
+      active.click()
+      return true
+    }
     case 'moveFocus': {
       const ring = focusRing(card)
       if (ring.length === 0) return false
@@ -129,14 +138,21 @@ export function perform(action: CardAction, card: InteractionCard): boolean {
       const target = ring[next]
       if (target === undefined) return false
       target.focus()
-      // Landing on an option also selects it: the ring and the answer stay together, so an
-      // arrow key is a complete way to choose and `Enter` then submits what the user sees.
-      // Only options are selected; the footer pager and the answer field keep focus only.
+      // On a single-answer question, landing on an option also selects it: the ring and the
+      // answer stay together, so an arrow key is a complete way to choose and `Enter` then
+      // submits what the user sees. Only options are selected; the footer pager and the answer
+      // field keep focus only.
+      //
+      // A multi-select question is different: its options are toggles, so selecting while
+      // moving would check every option the ring passes and make browsing impossible. There the
+      // arrows only move the ring; the user toggles with Space or a digit.
       //
       // Arrows never turn the page, though. On a single-select multi-question card the shipped
       // `choose` advances by itself, which would make `↓` mean "next question" instead of
       // "next option" — so the selection is made and the page is put back.
-      if (card.kind === 'question' && isOption(target)) selectWithoutPaging(card.element, target)
+      if (card.kind === 'question' && isOption(target) && !isMultiSelect(card.element)) {
+        selectWithoutPaging(card.element, target)
+      }
       return true
     }
     case 'activate': {
