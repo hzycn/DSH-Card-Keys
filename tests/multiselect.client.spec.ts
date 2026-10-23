@@ -5,8 +5,15 @@ import { isMultiSelect, optionButtons } from '../src/client/keyboard/dom.js'
 import { installCardKeys } from '../src/client/keyboard/install.js'
 import { planKey } from '../src/client/keyboard/plan.js'
 import type { KeyFacts } from '../src/client/keyboard/plan.js'
+import { selectQuestionDefault } from '../src/client/keyboard/question-default.js'
+import { watchCardDefaults } from '../src/client/keyboard/watch.js'
 import { gesture } from './gesture.js'
 import { mountQuestionCard } from './card-fixture.js'
+
+/** Let jsdom deliver the observer's microtask batch. */
+async function flush(): Promise<void> {
+  await new Promise<void>(resolve => { queueMicrotask(resolve) })
+}
 
 /** A stand-in for the Client shortcuts service: records the row and replays input. */
 function fakeShortcuts() {
@@ -44,6 +51,18 @@ function install() {
   const fake = fakeShortcuts()
   disposers.push(installCardKeys(fake.shortcuts, { label: () => 'Cards: select option with number keys' }))
   return fake
+}
+
+/** Watch cards and apply only the question default, recording every card reported. */
+function watching() {
+  const handled: string[] = []
+  disposers.push(watchCardDefaults({
+    onCard: card => {
+      handled.push(card.kind)
+      return card.kind === 'question' ? selectQuestionDefault(card, document) : true
+    },
+  }))
+  return { handled }
 }
 
 /** Multi-select card whose options toggle on click, like the shipped `choose` handler. */
@@ -93,10 +112,53 @@ describe('multi-select detection', () => {
     expect(isMultiSelect(mountQuestionCard().card)).toBe(false)
   })
 
+  it('is not fooled by a role="group" landmark outside the options', () => {
+    // `role="group"` is a general-purpose landmark: the shipped question-reply receipt carries
+    // one too. Matching it would classify a single-answer card as multi-select and silently
+    // disable its default selection, so only the option role may decide.
+    const fixture = mountQuestionCard()
+    const landmark = document.createElement('div')
+    landmark.setAttribute('role', 'group')
+    landmark.setAttribute('data-question-reply', 'x')
+    fixture.card.querySelector('[data-question-scroll]')?.append(landmark)
+    expect(isMultiSelect(fixture.card)).toBe(false)
+  })
+
   it('finds checkbox options the same way as radio options', () => {
     const fixture = mountMultiSelect()
     expect(optionButtons(fixture.card)).toEqual(fixture.options)
     expect(fixture.options[0]?.getAttribute('role')).toBe('checkbox')
+  })
+})
+
+describe('the single-answer paths are untouched', () => {
+  it('a single-answer single-question card still defaults to option 1', async () => {
+    const fixture = mountQuestionCard()
+    // Mirror the shipped effect so the default's click shows up as a checked option.
+    for (const option of fixture.options) {
+      option.addEventListener('click', () => {
+        for (const other of fixture.options) other.setAttribute('aria-checked', String(other === option))
+      })
+    }
+    watching()
+    await flush()
+    expect(fixture.clicks).toEqual(['option-1'])
+    expect(fixture.options[0]?.getAttribute('aria-checked')).toBe('true')
+    expect(document.activeElement).toBe(fixture.options[0])
+  })
+
+  it('never classifies a single-answer card as multi-select', () => {
+    expect(isMultiSelect(mountQuestionCard(document.body, 'single').card)).toBe(false)
+    expect(isMultiSelect(mountQuestionCard(document.body, 'paged', 3).card)).toBe(false)
+  })
+
+  it('a multi-select question still defaults to nothing', async () => {
+    const fixture = mountMultiSelect()
+    watching()
+    await flush()
+    expect(fixture.clicks).toEqual([])
+    expect(fixture.options[0]?.getAttribute('aria-checked')).toBe('false')
+    expect(document.activeElement).not.toBe(fixture.options[0])
   })
 })
 

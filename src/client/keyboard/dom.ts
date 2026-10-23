@@ -63,17 +63,21 @@ export function optionButtons(card: HTMLElement): HTMLElement[] {
 /**
  * Whether the question on screen accepts several answers.
  *
- * The shipped card marks its option group `group` for multi-select and `radiogroup` otherwise,
- * and gives each option `role="checkbox"` instead of `role="radio"`. The distinction matters to
- * the keyboard layer: in a multi-select question an option is a toggle, so moving the ring
- * across options must not toggle them — browsing would otherwise check every option it passes.
+ * The shipped card gives each option `role="checkbox"` for a multi-select question and
+ * `role="radio"` otherwise, and wraps them in `role="group"` versus `role="radiogroup"`. Only
+ * the option role is used here: `role="group"` is a general-purpose landmark that other DSH
+ * surfaces (such as the question-reply receipt) also carry, so matching it could classify a
+ * single-answer card as multi-select and silently disable its default selection.
+ *
+ * The distinction matters to the keyboard layer: in a multi-select question an option is a
+ * toggle, so moving the ring across options must not toggle them — browsing would otherwise
+ * check every option it passes.
  *
  * @param card - the `[data-question-key]` frame.
  * @returns whether several options may be selected at once.
  */
 export function isMultiSelect(card: HTMLElement): boolean {
-  if (card.querySelector('button[role="checkbox"]') !== null) return true
-  return card.querySelector('[data-question-scroll] [role="group"]') !== null
+  return card.querySelector('button[role="checkbox"]') !== null
 }
 
 /**
