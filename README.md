@@ -19,7 +19,7 @@
 - 按键仲裁完全交给 DSH：焦点在输入框/终端里打字时、有弹窗时、输入法组合中、带修饰键时，数字键保持原样，插件不会抢键。
 - 命中后插件只对官方卡片的 DOM 做普通 `click()` / `focus()`：`[data-question-key]` 里的 `button[role="radio"|"checkbox"]`、`[data-approval-key]` 里的「拒绝 / 允许一次」按钮、`footer` 里的主按钮、`header` 里的关闭按钮。因此官方的进度记忆、倒计时、计划审批、只读回顾卡片等行为全部保留。
 - **审批卡片一出现，焦点直接落在「允许一次」上**（每张卡只落一次）。这样一次 `Enter` 就是官方按钮的原生激活，不需要先按方向键。焦点环来自 DSH 自己的 `focus.css`：键盘操作时显示，鼠标操作时透明——视觉与“回车会同意”完全一致。插件只是移动焦点，从不替你点击同意。
-- **提问卡片一出现，默认选中选项 1**（每张卡只选一次）。走的是官方选项按钮自己的 `click`，所以草稿、`aria-checked`、主按钮的可用状态都由官方状态机产生；你可以用数字键或方向键随时改选，插件不会替你提交。已带答案的题目（有勾选项、已有补充文本、或官方 `(推荐)` 预选）不会被覆盖；单选多题的卡片只默认第一题，避免官方「选完自动跳下一题」的逻辑被插件带着连跳。
+- **单选题卡片一出现，默认选中选项 1**（每张卡只选一次）。走的是官方选项按钮自己的 `click`，所以草稿、`aria-checked`、主按钮的可用状态都由官方状态机产生；你可以用数字键或方向键随时改选，插件不会替你提交。已带答案的题目（有勾选项、已有补充文本、或官方 `(推荐)` 预选）不会被覆盖；多选题与多题卡片（有 `1/3` 页码）什么都不默认：多选替用户勾选等于替他做决定；多题卡片官方「选完自动翻页」，每页都上默认值会自动填满并跳过整批，且没有选中态的焦点环像「默认选过了」（详见下文「键位」）。
 
 方向键 / Enter / Esc 同样通过上述通道分发，但只在有卡片显示、且焦点不在输入控件上时生效。
 
@@ -40,10 +40,18 @@ powershell -ExecutionPolicy Bypass -File scripts\install-to-dsh.ps1
 
 已安装的插件被替换后，DSH 的 HMR 会轮询 `lib/client.js` 并把新版本推给已打开的页面，通常不需要重启；若页面没有变化，刷新页面或重启 DeepSeek Harness。
 
-### 手动安装（等价流程）
+### 手动安装（与脚本等效的流程）
 
-1. `npm pack` 生成 `hzy-dsh-card-keys-<version>.tgz`；
-2. 在 `%USERPROFILE%\.dsh\profiles\desktop` 下执行 `npm install <tgz 路径>`；
+profile 的 `node_modules` 是 pnpm 安装（`nodeLinker: hoisted`），DSH 启动时会校验 `pnpm-lock.yaml`，因此安装要用 **DSH 自带的 pnpm**。直接 `npm install <tgz>` 会把 lockfile 留在旧包上，DSH 会提示修复 profile 或继续加载旧插件，仅在找不到自带 pnpm 时作兜底。
+
+1. `npm pack --ignore-scripts` 生成 `hzy-dsh-card-keys-<version>.tgz`；
+2. 在 `%USERPROFILE%\.dsh\profiles\desktop` 下：把 `package.json` 里依赖 `"@hzy/dsh-card-keys"` 的值改成 `"file:<tgz 绝对路径>"`，删除旧的 `node_modules\@hzy\dsh-card-keys`（`file:` 依赖版本号不变，pnpm 会报 "Already up to date" 而跳过重装），再用 DSH 自带的 pnpm 安装：
+
+   ```powershell
+   $runtime = "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\primary-runtime\dependencies"
+   & "$runtime\node\bin\node.exe" "$runtime\pnpm\bin\pnpm.cjs" install --ignore-scripts
+   ```
+
 3. 在该目录的 `cordis.patch.yml` 末尾追加：
 
 ```yaml
@@ -94,7 +102,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install-to-dsh.ps1
 
 ## 兼容性
 
-面向 DSH 组合 `0.2.1-rc.2`（同上游 `>=0.2.0-rc.1 <1.0.0`）；浏览器产物依赖 DSH boot 注入，无法脱离 DSH 使用。
+面向 DSH 组合 `>=0.2.0-rc.1 <1.0.0`（依赖按 `0.2.0-rc.1` 锁定构建）；浏览器产物依赖 DSH boot 注入，无法脱离 DSH 使用。
 
 插件依赖官方卡片的以下 DOM 约定，官方改动时需要同步更新：`[data-question-key]` / `[data-approval-key]` 外层、`button[role="radio"|"checkbox"]` 选项、`[data-question-scroll]` 正文、`footer` 动作行、`header` 关闭按钮。
 
@@ -109,7 +117,7 @@ pnpm run bundle
 
 `tests/card-fixture.ts` 按官方卡片的真实结构搭建夹具，`tests/install.client.spec.ts` 用假的 shortcuts 服务回放仲裁输入，覆盖数字选择、方向键、回车、Esc、审批 1/2、以及输入框/弹窗/修饰键/输入法这些不该抢键的场景。`tests/approval-focus.client.spec.ts` 与 `tests/question-default.client.spec.ts` 单独覆盖两类卡片的初始状态：只生效一次、不覆盖已有答案、不抢输入框焦点、排队卡片各自生效。
 
-浏览器验收需通过真实 DSH 组合进行；`apps/web` Vite 入口不是本插件的验证目标。
+浏览器验收需通过真实 DSH desktop 组合进行（`scripts/install-to-dsh.ps1` 可一键完成构建、打包与安装）；浏览器产物依赖 DSH boot 注入，无法脱离 DSH 单独打开页面验证。
 
 ## License
 
