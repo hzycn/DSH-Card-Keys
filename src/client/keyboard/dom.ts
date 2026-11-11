@@ -8,7 +8,15 @@
  * - `[data-question-key]` on the ask_user_question / plan-review takeover frame.
  * - `[data-approval-key]` on the approval takeover frame.
  * - `button[role="radio"|"checkbox"]` for selectable question options.
- * - `[data-question-scroll]` for the answer body and `footer` for the pager/actions. */
+ * - `[data-question-scroll]` for the answer body and `footer` for the pager/actions.
+ *
+ * The arrow ring is built from those hooks plus an explicit allowlist of controls the user
+ * can actually answer with — never from "every button in the body". DSH 0.2.2 added
+ * "expand copy" buttons inside `[data-question-scroll]` (a question-title toggle, always
+ * rendered, and one per option description) hidden with `visibility: hidden`. A generic
+ * body scan adopted them as ring stops, `focus()` on a hidden button is a silent no-op, and
+ * every arrow key then appeared dead. Keeping the ring semantic is what makes the next piece
+ * of card chrome harmless. */
 
 export type InteractionCard =
   | { readonly kind: 'question'; readonly element: HTMLElement }
@@ -17,6 +25,9 @@ export type InteractionCard =
 const QUESTION_CARD = '[data-question-key]'
 const APPROVAL_CARD = '[data-approval-key]'
 const CONTROL = 'button, input, textarea, select, a[href], [contenteditable="true"], [contenteditable=""]'
+
+/** The two ways a question is answered: a selectable option, or a text field. */
+const ANSWER_CONTROL = 'button[role="radio"], button[role="checkbox"], input, textarea, select, [contenteditable="true"], [contenteditable=""]'
 
 /** A card that is really on screen; hidden or detached frames never take keys. */
 function isLive(element: Element): element is HTMLElement {
@@ -53,6 +64,39 @@ export function activeCard(root: ParentNode = document): InteractionCard | null 
 
 function enabled<T extends HTMLElement>(elements: T[]): T[] {
   return elements.filter(element => (element as { readonly disabled?: boolean }).disabled !== true)
+}
+
+/**
+ * Whether the user could actually put the keyboard on this element right now.
+ *
+ * `focus()` on a `visibility: hidden` element is a silent no-op, and the arrow ring is
+ * walked by focusing: a hidden stop therefore swallows every arrow key that lands on it.
+ * DSH 0.2.2 renders exactly such buttons inside the answer body (the copy-expand toggles,
+ * which are `visibility: hidden` until their text overflows), so every ring stop must be
+ * proven visible before the user is asked to press a key. Ancestors matter: `display: none`
+ * is not inherited, so it is checked by walking up; `visibility` is inherited, but the
+ * walk covers both without relying on that.
+ *
+ * @param element - a control the ring might stop on.
+ * @returns whether it is connected, shown, and not inside a hidden or inert subtree.
+ */
+export function isShown(element: HTMLElement): boolean {
+  if (!element.isConnected) return false
+  if (element.closest('[hidden], [inert]') !== null) return false
+  const view = element.ownerDocument.defaultView
+  if (view === null) return true
+  for (let node: Element | null = element; node !== null; node = node.parentElement) {
+    const style = view.getComputedStyle(node)
+    if (style.display === 'none') return false
+    if (style.visibility === 'hidden' || style.visibility === 'collapse') return false
+    if (node === element.ownerDocument.body) break
+  }
+  return true
+}
+
+/** A ring stop: a shown, enabled answer control. */
+function usable<T extends HTMLElement>(elements: T[]): T[] {
+  return enabled(elements).filter(isShown)
 }
 
 /** Selectable option buttons of a question card, in display order. */
@@ -125,27 +169,45 @@ export function isOption(element: Element): boolean {
  * @returns whether any option is checked or the custom answer has text.
  */
 export function questionAnswered(card: HTMLElement): boolean {
-  if (card.querySelector('button[role="radio"][aria-checked="true"], button[role="checkbox"][aria-checked="true"]') !== null) return true
+  return answeredOption(card) !== undefined || customAnswer(card) !== null
+}
+
+/** The option the card already shows as chosen, or undefined when none is. */
+export function answeredOption(card: HTMLElement): HTMLElement | undefined {
+  return optionButtons(card).find(button => button.getAttribute('aria-checked') === 'true')
+}
+
+/** The free-text answer field carrying a draft, or null when it is empty or absent. */
+function customAnswer(card: HTMLElement): HTMLInputElement | HTMLTextAreaElement | null {
   const custom = card.querySelector<HTMLInputElement | HTMLTextAreaElement>('[data-question-scroll] input, [data-question-scroll] textarea')
-  return custom !== null && custom.value.trim() !== ''
+  return custom !== null && custom.value.trim() !== '' ? custom : null
 }
 
 /** The approval card's decision buttons: the trailing action row is reject, then allow once. */
 export function approvalButtons(card: HTMLElement): { allow?: HTMLElement; reject?: HTMLElement } {
+  // Positions come from the real row, so a hidden button never shifts the mapping. A button
+  // that is not on screen resolves to `undefined` rather than being clicked anyway: a synthetic
+  // click would answer a permission prompt the user never saw.
   const buttons = enabled([...card.querySelectorAll<HTMLElement>('button')])
   const allow = buttons.at(-1)
   const reject = buttons.length >= 2 ? buttons.at(-2) : undefined
-  return reject === undefined ? { allow } : { allow, reject }
+  return {
+    allow: allow !== undefined && isShown(allow) ? allow : undefined,
+    reject: reject !== undefined && isShown(reject) ? reject : undefined,
+  }
 }
 
-/** The controls arrow keys traverse: the answer body first, then the footer actions. */
+/** The controls arrow keys traverse: the answer controls first, then the footer actions. */
 export function focusRing(card: InteractionCard): HTMLElement[] {
-  if (card.kind === 'approval') return enabled([...card.element.querySelectorAll<HTMLElement>('button')])
+  if (card.kind === 'approval') return usable([...card.element.querySelectorAll<HTMLElement>('button')])
   const ring: HTMLElement[] = []
+  // Only controls that actually take an answer. The shipped body also carries chrome —
+  // `MarkdownText` copy buttons in the question detail, and since 0.2.2 the copy-expand
+  // toggles — none of which can hold the keyboard while hidden and none of which answers.
   const body = card.element.querySelector('[data-question-scroll]')
-  if (body !== null) ring.push(...enabled([...body.querySelectorAll<HTMLElement>(CONTROL)]))
+  if (body !== null) ring.push(...usable([...body.querySelectorAll<HTMLElement>(ANSWER_CONTROL)]))
   const footer = card.element.querySelector('footer')
-  if (footer !== null) ring.push(...enabled([...footer.querySelectorAll<HTMLElement>(CONTROL)]))
+  if (footer !== null) ring.push(...usable([...footer.querySelectorAll<HTMLElement>(CONTROL)]))
   return ring
 }
 
@@ -164,11 +226,11 @@ export function primaryButton(card: InteractionCard): HTMLElement | undefined {
   if (card.kind === 'approval') return approvalButtons(card.element).allow
   const footer = card.element.querySelector('footer')
   if (footer === null) return undefined
-  const buttons = [...footer.querySelectorAll<HTMLElement>('button')]
+  // Position, never "the last enabled button": a disabled primary must stay disabled, and
+  // filtering it out first would silently promote `Skip` to the confirming action.
+  const buttons = [...footer.querySelectorAll<HTMLElement>('button')].filter(isShown)
   const primary = buttons.at(-1)
   if (primary === undefined) return undefined
-  // A disabled primary must stay disabled: its own `disabled` state is the card's own answer
-  // to "is this question complete yet", and calling click() would bypass it.
   if ((primary as { readonly disabled?: boolean }).disabled === true) return undefined
   return primary
 }
@@ -177,7 +239,7 @@ export function primaryButton(card: InteractionCard): HTMLElement | undefined {
 export function dismissButton(card: HTMLElement): HTMLElement | undefined {
   const header = card.querySelector('header')
   if (header === null) return undefined
-  return enabled([...header.querySelectorAll<HTMLElement>('button')]).at(-1)
+  return enabled([...header.querySelectorAll<HTMLElement>('button')]).filter(isShown).at(-1)
 }
 
 /** Whether focus currently sits on a control that owns the key by itself. */

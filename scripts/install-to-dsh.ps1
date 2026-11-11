@@ -3,6 +3,11 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\install-to-dsh.ps1            # build + install
 #   powershell -ExecutionPolicy Bypass -File scripts\install-to-dsh.ps1 -SkipBuild # install only
 # After installing, restart DeepSeek Harness to reload the composition.
+#
+# Runs on both Windows PowerShell 5.1 and PowerShell 7. The profile manifest is read and
+# written as explicit UTF-8: it holds non-ASCII dependency paths on some machines, and 5.1's
+# default Get-Content encoding would mojibake them, failing the install and dropping the
+# profile's other plugins.
 
 param(
     [switch]$SkipBuild
@@ -58,15 +63,23 @@ try {
         # lockfile specifier/integrity and node_modules in one resolution step. Only the
         # one specifier line is replaced: re-serializing the manifest would reflow the
         # whole file, and the profile is user-owned configuration.
+        #
+        # The profile manifest is UTF-8 and may hold non-ASCII paths (a Chinese checkout
+        # directory is common here). Windows PowerShell 5.1 `Get-Content` without an explicit
+        # encoding decodes UTF-8 as ANSI, and writing that back mojibakes every such path —
+        # which then fails the install with ENOENT on a garbled path and leaves the profile
+        # without its other plugins. Read and write UTF-8 explicitly, and never write when the
+        # specifier is already current.
         $specifier = "file:$($tarball -replace '\\', '/')"
-        $manifestText = Get-Content 'package.json' -Raw
+        $manifestPath = Join-Path (Get-Location) 'package.json'
+        $manifestText = [System.IO.File]::ReadAllText($manifestPath, [System.Text.UTF8Encoding]::new($false))
         $updated = [regex]::Replace(
             $manifestText,
             '("@hzy/dsh-card-keys"\s*:\s*)"[^"]*"',
             { param($match) $match.Groups[1].Value + '"' + $specifier + '"' }
         )
         if ($updated -ne $manifestText) {
-            [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'package.json'), $updated)
+            [System.IO.File]::WriteAllText($manifestPath, $updated, [System.Text.UTF8Encoding]::new($false))
         }
         # A `file:` dependency keeps the same specifier across rebuilds, so pnpm reports
         # "Already up to date" and leaves the previously extracted copy in place. Removing

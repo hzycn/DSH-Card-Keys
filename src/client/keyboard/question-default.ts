@@ -19,7 +19,7 @@
  * `watchCardDefaults` decides which card and when. A page turn re-renders inside the same
  * card element, so the watcher can treat the whole batch as one card. */
 
-import { isMultiSelect, optionButtons, questionAnswered, questionCount } from './dom.js'
+import { answeredOption, isMultiSelect, optionButtons, questionAnswered, questionCount } from './dom.js'
 import type { InteractionCard } from './dom.js'
 
 /** A dialog or menu owns the keyboard: a default click behind it would be invisible. */
@@ -78,6 +78,23 @@ export function selectQuestionDefault(card: InteractionCard, root: Document): bo
   if (questionCount(card.element) > 1) return true
 
   // An already answered question keeps its answer; only a blank one takes the default.
+  //
+  // Since DSH 0.2.2 a choice the tool marked `(Recommended)` arrives pre-selected — for a
+  // single-select question the first one, for a multi-select every marked one — so "already
+  // answered" is now the common case rather than an edge case. The answer must still not be
+  // overwritten, but the ring has to start somewhere: leaving focus on the page body means the
+  // card opens looking answered yet the keyboard is nowhere, and the user's first arrow press
+  // has no visible origin. Put the ring on the option that is already chosen, which changes no
+  // answer at all.
+  const chosen = answeredOption(card.element)
+  if (chosen !== undefined) {
+    // A multi-select answer is a set of toggles: a ring on one of them would make the next
+    // `Space` uncheck a choice the user never touched. Those cards stay unfocused.
+    if (isMultiSelect(card.element)) return true
+    chosen.focus({ preventScroll: true })
+    return true
+  }
+  // A typed draft is the user's own answer too; never put a ring on an option beside it.
   if (questionAnswered(card.element)) return true
   // Put the ring on the option as well as the answer: the card then opens showing exactly
   // what `Enter` would submit, the same way the approval card opens on its allow button.

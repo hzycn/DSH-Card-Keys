@@ -38,6 +38,27 @@ powershell -ExecutionPolicy Bypass -File scripts\install-to-dsh.ps1
 
 脚本会自动完成：构建 → `npm pack` 打包 → 安装到 `%USERPROFILE%\.dsh\profiles\desktop` → 在该 profile 的 `cordis.patch.yml` 里注册组合条目。改完代码后重复执行即可更新插件；不想重复构建时可加 `-SkipBuild`。
 
+脚本用显式 UTF-8 读写 profile 的 `package.json`：该文件里可能有中文路径（本机就是 `D:\ai智能助手API代码\...`），而 **Windows PowerShell 5.1 的 `Get-Content` 默认按 ANSI 解码 UTF-8**，会把中文路径写成乱码，pnpm 随后报 `ENOENT` 并让整个 profile 的插件全部掉线。如果要在 5.1 下运行旧版脚本，请先升级到本仓库版本。
+
+### 让 `powershell` 指向 PowerShell 7（可选，与本插件无关）
+
+Windows 自带 `powershell.exe` 是 5.1。若想让所有 `powershell ...` 调用都用 PowerShell 7：
+
+```powershell
+pwsh -File scripts\install-powershell-shim.ps1              # 无需管理员：在 pwsh 目录建 powershell.exe 硬链接
+pwsh -File scripts\install-powershell-shim.ps1 -Check       # 只看当前解析到哪个版本
+pwsh -File scripts\install-powershell-shim.ps1 -Uninstall   # 撤销
+```
+
+用**硬链接**而不是符号链接，原因有两个：
+
+- 符号链接会让 `pwsh.exe` 以为自己的安装目录是链接所在目录，于是去那里找 `pwsh.dll`，找不到就直接失败（`The application to execute does not exist: ...pwsh.dll`）；
+- 硬链接指向 `pwsh.exe` 这个文件本身，`PSHOME` 保持为真实的 PowerShell 7 目录；而且创建硬链接**不需要管理员权限**（符号链接需要）。代价是它绑定文件，PowerShell 7 升级后要重新执行一次。
+
+> ⚠️ **不要**在 `C:\Windows\System32` 里执行 `mklink powershell.exe pwsh.exe`。相对目标会被解析成 `System32\pwsh.exe`（不存在），链接悬空，从该目录调用 `powershell` 会报“找不到文件”，比原来的 5.1 更糟；把它改成绝对路径的软链同样不可用，因为 `pwsh.dll` 的查找会落在 `System32`。
+
+Windows PowerShell 5.1 始终保留在 `%WINDIR%\System32\WindowsPowerShell\v1.0\powershell.exe`，可按全路径继续使用。
+
 已安装的插件被替换后，DSH 的 HMR 会轮询 `lib/client.js` 并把新版本推给已打开的页面，通常不需要重启；若页面没有变化，刷新页面或重启 DeepSeek Harness。
 
 ### 手动安装（与脚本等效的流程）
@@ -90,6 +111,7 @@ profile 的 `node_modules` 是 pnpm 安装（`nodeLinker: hoisted`），DSH 启�
 卡片弹出时的初始状态：
 
 - **单选题卡片默认选中选项 1，焦点环也在选项 1 上**（仅当该题还没有答案时）。你可以直接按 `Enter` 提交选项 1，也可以用 `2`/`3` 或方向键改选后再提交。想输入自定义答案时，用方向键往下走到输入框即可。
+- **DSH 自己预选了「推荐」项时，插件不改答案，只把焦点环放到已选中的那一项上**（DSH 0.2.2 起，工具标注 `(Recommended)` 的选项会由官方自动选中）。否则卡片看起来"已经选好了"，键盘却停在页面空白处，第一次按方向键没有起点。
 - **多选题卡片不默认勾选任何项**（多选答案由你自己累加，替用户勾选是替他做决定）。
 - **多题卡片（有 `1/3` 页码）既不选中、也不放焦点环**。因为①官方卡片在单选多题时"选完自动翻页"，若每页都默认选中，整批题目会被自动填满并跳过；②没有选中态的焦点环看起来就像"默认选过了"，容易误导。这与 DSH 自身行为一致——官方对有选项的题目既不聚焦选项、也不聚焦输入框。你要按数字键或方向键，才出现灰底和焦点环。
 - **审批卡片焦点在「允许一次」**，一次 `Enter` 即同意；按 `2` 或 `←` 再 `Enter` 表示拒绝。
@@ -102,9 +124,11 @@ profile 的 `node_modules` 是 pnpm 安装（`nodeLinker: hoisted`），DSH 启�
 
 ## 兼容性
 
-面向 DSH 组合 `>=0.2.0-rc.1 <1.0.0`（依赖按 `0.2.0-rc.1` 锁定构建）；浏览器产物依赖 DSH boot 注入，无法脱离 DSH 使用。
+面向 DSH 组合 `>=0.2.0-rc.1 <1.0.0`（已在 `0.2.2-rc.1` 上验证）。
 
 插件依赖官方卡片的以下 DOM 约定，官方改动时需要同步更新：`[data-question-key]` / `[data-approval-key]` 外层、`button[role="radio"|"checkbox"]` 选项、`[data-question-scroll]` 正文、`footer` 动作行、`header` 关闭按钮。
+
+方向键的焦点环只走**能作答的控件**（选项、补充输入、页脚按钮），不是"正文里的每个 button"。DSH 0.2.2 在正文里新增了两个默认 `visibility:hidden` 的「展开/收起」按钮（题干一个、带描述的选项一个），隐藏元素 `focus()` 是静默失败——旧版把正文所有 button 都当成焦点站点，于是方向键全部失效。现在焦点环按可见性过滤，并且移动焦点后会校验焦点是否真的落上去，落不上就顺延/不消费按键，后续 DSH 再往里加装饰按钮也不会再打断方向键。
 
 ## 开发与验证
 

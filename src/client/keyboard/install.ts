@@ -132,28 +132,43 @@ export function perform(action: CardAction, card: InteractionCard): boolean {
       const ring = focusRing(card)
       if (ring.length === 0) return false
       const current = ring.indexOf(document.activeElement as HTMLElement)
-      const next = current < 0
-        ? (action.delta > 0 ? 0 : ring.length - 1)
-        : (current + action.delta + ring.length) % ring.length
-      const target = ring[next]
-      if (target === undefined) return false
-      target.focus()
-      // On a single-answer question, landing on an option also selects it: the ring and the
-      // answer stay together, so an arrow key is a complete way to choose and `Enter` then
-      // submits what the user sees. Only options are selected; the footer pager and the answer
-      // field keep focus only.
-      //
-      // A multi-select question is different: its options are toggles, so selecting while
-      // moving would check every option the ring passes and make browsing impossible. There the
-      // arrows only move the ring; the user toggles with Space or a digit.
-      //
-      // Arrows never turn the page, though. On a single-select multi-question card the shipped
-      // `choose` advances by itself, which would make `↓` mean "next question" instead of
-      // "next option" — so the selection is made and the page is put back.
-      if (card.kind === 'question' && isOption(target) && !isMultiSelect(card.element)) {
-        selectWithoutPaging(card.element, target)
+      // From outside the ring the first press enters it: down goes to its head, up to its tail.
+      // From inside it, the walk must never land back on the element that already has focus —
+      // that is not a move, and reporting it would consume the key for nothing.
+      const steps = current < 0
+        ? ring.length
+        : ring.length - 1
+      if (steps === 0) return false
+      const start = current < 0 ? (action.delta > 0 ? -1 : 0) : current
+      // Walk until a stop really takes the keyboard. `focus()` can be a silent no-op — a stop
+      // hidden by shipped CSS, or one that a later DSH build made inert — and reporting
+      // success then would consume the key with nothing happening. Skipping forward keeps the
+      // arrows alive even if a future card adds another unusable stop.
+      for (let step = 1; step <= steps; step++) {
+        const next = ((start + action.delta * step) % ring.length + ring.length) % ring.length
+        const target = ring[next]
+        if (target === undefined) continue
+        target.focus()
+        if (document.activeElement !== target) continue
+        // On a single-answer question, landing on an option also selects it: the ring and the
+        // answer stay together, so an arrow key is a complete way to choose and `Enter` then
+        // submits what the user sees. Only options are selected; the footer pager and the answer
+        // field keep focus only.
+        //
+        // A multi-select question is different: its options are toggles, so selecting while
+        // moving would check every option the ring passes and make browsing impossible. There the
+        // arrows only move the ring; the user toggles with Space or a digit.
+        //
+        // Arrows never turn the page, though. On a single-select multi-question card the shipped
+        // `choose` advances by itself, which would make `↓` mean "next question" instead of
+        // "next option" — so the selection is made and the page is put back.
+        if (card.kind === 'question' && isOption(target) && !isMultiSelect(card.element)) {
+          selectWithoutPaging(card.element, target)
+        }
+        return true
       }
-      return true
+      // No stop could take focus at all: the key keeps its normal job.
+      return false
     }
     case 'activate': {
       const button = primaryButton(card)

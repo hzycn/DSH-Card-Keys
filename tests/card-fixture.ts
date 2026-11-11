@@ -1,16 +1,30 @@
 /** Fixtures that mirror the shipped interaction-card markup this plugin drives.
  *
  * The structure is copied from the official takeovers so a regression in the selectors
- * shows up here: `@deepseek-ai/dsh-client-ui-user-questions` renders
- * `[data-question-key] > section > header/body/footer`, with `button[role=radio]`
- * options and the custom answer field inside the body's `[data-question-scroll]`;
- * `@deepseek-ai/dsh-client-ui-approval` renders `[data-approval-key]` around a card
- * whose action row holds the reject and allow-once buttons in that order. */
+ * shows up here. As of DSH 0.2.2:
+ *
+ * - `@deepseek-ai/dsh-client-ui-user-questions` renders
+ *   `[data-question-key] > section > header/body/footer`, with `button[role=radio]`
+ *   (or `role=checkbox`) options each wrapped in `[data-option-row]`, the custom answer
+ *   inside the body's `[data-question-scroll]`, and — new in 0.2.2 — copy-expand toggles
+ *   inside that same body: an always-rendered `.questionToggle` above the options and one
+ *   `.descriptionToggle` after any option that carries a description. Both are
+ *   `visibility: hidden` until their copy overflows, so their `focus()` is a no-op; the
+ *   fixture reproduces that computed state with an inline style.
+ * - `@deepseek-ai/dsh-client-ui-approval` renders `[data-approval-key]` around a card whose
+ *   action row holds the reject and allow-once buttons in that order.
+ *
+ * NOTE: when DSH changes this markup again, update the fixture first and let the tests fail;
+ * that is the only thing that keeps a silent UI regression from shipping. */
 
 export interface QuestionFixture {
   readonly card: HTMLElement
   readonly options: HTMLButtonElement[]
-  readonly custom: HTMLInputElement
+  readonly custom: HTMLTextAreaElement
+  /** The 0.2.2 question-copy expand toggle: always present, hidden until the text overflows. */
+  readonly questionToggle: HTMLButtonElement
+  /** The 0.2.2 per-option description expand toggle: present only with a description, hidden. */
+  readonly descriptionToggle: HTMLButtonElement
   readonly previous: HTMLButtonElement
   readonly next: HTMLButtonElement
   readonly skip: HTMLButtonElement
@@ -20,6 +34,8 @@ export interface QuestionFixture {
   readonly setPage: (index: number, total: number) => void
   /** The page index the pager currently shows, or null before a pager exists. */
   readonly page: () => number | null
+  /** Mark one option as the chosen one, the way the shipped card reports its own state. */
+  readonly check: (index: number) => void
   readonly clicks: string[]
 }
 
@@ -44,16 +60,22 @@ function track(clicks: string[], button: HTMLButtonElement, name: string): HTMLB
  *   fixture can represent any page of a batch.
  * @param multiSelect - render the shipped multi-select markup: `role="group"` around
  *   `role="checkbox"` options instead of `role="radiogroup"` around `role="radio"`.
+ * @param withDescription - render the 0.2.2 description toggle after the second option.
+ *   Kept on by default because its hidden button is exactly what broke the arrow ring.
  */
 export function mountQuestionCard(
   root: ParentNode = document.body,
   key = 'q1',
   page = 1,
   multiSelect = false,
+  withDescription = true,
 ): QuestionFixture {
-  const pager = page > 1 ? `${String(page > 1 ? 1 : 1)} / ${String(page)}` : ''
+  const pager = page > 1 ? `1 / ${String(page)}` : ''
   const groupRole = multiSelect ? 'group' : 'radiogroup'
   const optionRole = multiSelect ? 'checkbox' : 'radio'
+  // The shipped toggles are hidden by card CSS until their copy overflows. An inline style
+  // gives every DOM implementation the same computed state.
+  const hidden = 'style="visibility:hidden"'
   const host = document.createElement('div')
   host.innerHTML = `
     <div data-question-key="${key}">
@@ -66,11 +88,22 @@ export function mountQuestionCard(
           </div>
         </header>
         <div data-question-scroll="true">
+          <div>
+            <h2>Which one?</h2>
+            <button type="button" aria-label="expand" ${hidden}>v</button>
+          </div>
           <div role="${groupRole}">
-            <button type="button" role="${optionRole}" aria-checked="false">1 Option A</button>
-            <button type="button" role="${optionRole}" aria-checked="false">2 Option B</button>
-            <button type="button" role="${optionRole}" aria-checked="false">3 Option C</button>
-            <div><input aria-label="custom answer" /></div>
+            <div data-option-row>
+              <button type="button" role="${optionRole}" aria-checked="false">1 Option A</button>
+            </div>
+            <div data-option-row>
+              <button type="button" role="${optionRole}" aria-checked="false">2 Option B</button>
+              ${withDescription ? `<button type="button" aria-label="expand" ${hidden}>v</button>` : ''}
+            </div>
+            <div data-option-row>
+              <button type="button" role="${optionRole}" aria-checked="false">3 Option C</button>
+            </div>
+            <div><textarea aria-label="custom answer" rows="1"></textarea></div>
           </div>
         </div>
         <footer>
@@ -91,16 +124,20 @@ export function mountQuestionCard(
   root.appendChild(container)
   const card = container
   const clicks: string[] = []
-  const buttons = [...card.querySelectorAll<HTMLButtonElement>('button')]
-  const options = buttons.filter(button => {
-    const role = button.getAttribute('role')
-    return role === 'radio' || role === 'checkbox'
-  })
+  const options = [...card.querySelectorAll<HTMLButtonElement>(
+    'button[role="radio"], button[role="checkbox"]',
+  )]
   const footerButtons = [...card.querySelectorAll<HTMLButtonElement>('footer button')]
+  const body = card.querySelector('[data-question-scroll]') as HTMLElement
+  const bodyButtons = [...body.querySelectorAll<HTMLButtonElement>('button')].filter(
+    button => button.getAttribute('role') === null,
+  )
   const fixture: QuestionFixture = {
     card,
     options,
-    custom: card.querySelector('input')!,
+    custom: card.querySelector('textarea')!,
+    questionToggle: bodyButtons[0]!,
+    descriptionToggle: bodyButtons[1]!,
     previous: track(clicks, footerButtons[0]!, 'previous'),
     next: track(clicks, footerButtons[1]!, 'next'),
     skip: track(clicks, footerButtons[2]!, 'skip'),
@@ -114,6 +151,11 @@ export function mountQuestionCard(
       const span = card.querySelector('footer span')
       const match = span === null ? null : /(\d+)\s*\/\s*(\d+)/u.exec(span.textContent ?? '')
       return match === null ? null : Number(match[1])
+    },
+    check(index: number): void {
+      options.forEach((option, position) => {
+        option.setAttribute('aria-checked', String(position === index))
+      })
     },
     clicks,
   }
