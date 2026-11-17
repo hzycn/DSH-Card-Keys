@@ -6,7 +6,7 @@
  * performs a plain click or focus move on the shipped card markup. */
 
 import type { Shortcuts } from '@deepseek-ai/dsh-client-shortcuts/client'
-import { approvalButtons, activeCard, dismissButton, focusIsControl, focusRing, isMultiSelect, isOption, optionButtons, primaryButton } from './dom.js'
+import { approvalButtons, activeCard, dismissButton, focusIsControl, focusRing, isMultiSelect, isOption, optionButtons, primaryButton, questionCount } from './dom.js'
 import type { InteractionCard } from './dom.js'
 import { scheduleComposerFocus } from './composer-focus.js'
 import { createSelectOptionCommand } from './fixed.js'
@@ -16,6 +16,7 @@ import { planKey } from './plan.js'
 import type { CardAction, KeyFacts } from './plan.js'
 import { selectWithoutPaging } from './paging.js'
 import { selectQuestionDefault } from './question-default.js'
+import { installConfirmGuard } from './confirm.js'
 import { watchCardDefaults } from './watch.js'
 
 export interface CardKeysOptions {
@@ -46,6 +47,10 @@ export function installCardKeys(shortcuts: Shortcuts, options: CardKeysOptions):
     if (input.type !== 'keydown') return
     if (handleInput(input)) input.consume()
   })
+  // Enter confirmation on a paged single-answer card cannot ride the fixed channel: React's
+  // option handler runs earlier and would submit the whole batch. This guard takes that one key
+  // at capture time and clicks the card's own primary action instead.
+  const offConfirm = installConfirmGuard(document)
   // Each card opens in a usable state: the approval card on its allow button, the question
   // card with its first option already selected. The watcher decides which card and when —
   // exactly once per card — because a takeover can mount hidden and become visible a frame
@@ -63,7 +68,7 @@ export function installCardKeys(shortcuts: Shortcuts, options: CardKeysOptions):
     // conservative: it only acts when focus is truly loose and the composer is editable.
     onAllCardsClosed: () => { composerRetry?.(); composerRetry = scheduleComposerFocus(document) },
   })
-  return () => { composerRetry?.(); offDefaults(); offInput(); offCommand?.() }
+  return () => { composerRetry?.(); offDefaults(); offConfirm(); offInput(); offCommand?.() }
 }
 
 /**
@@ -109,7 +114,26 @@ export function perform(action: CardAction, card: InteractionCard): boolean {
     case 'selectOption': {
       const button = optionButtons(card.element)[action.index]
       if (button === undefined) return false
-      button.focus()
+      // `preventScroll` matters: focusing without it makes the browser scroll the option into
+      // view, which scrolls the conversation behind the card too. On a paged card the rollback
+      // then restores focus again, so the transcript lurches twice for one key.
+      button.focus({ preventScroll: true })
+      // A multi-select question is a set of independent toggles: a digit only moves the ring
+      // there. Toggling on the way would make a digit mean "check this", when the card's whole
+      // grammar is "navigate, then Space to check, Enter to submit" — and a second press of the
+      // same digit would silently uncheck what the first one added.
+      if (card.kind === 'question' && isMultiSelect(card.element)) return true
+      // A paged single-answer card advances by itself on `choose`, so a bare click would jump
+      // the user off the question they just answered. Selecting through the paging guard keeps
+      // the page put and puts the ring back on the option, so the arrows keep walking the list
+      // from where the digit left off.
+      //
+      // `Enter` still has to confirm this page rather than submit the batch, which the option
+      // button's own handler would do; `installConfirmGuard` takes that key at capture time.
+      if (card.kind === 'question' && questionCount(card.element) > 1) {
+        selectWithoutPaging(card.element, button)
+        return true
+      }
       button.click()
       return true
     }
@@ -148,7 +172,7 @@ export function perform(action: CardAction, card: InteractionCard): boolean {
         const next = ((start + action.delta * step) % ring.length + ring.length) % ring.length
         const target = ring[next]
         if (target === undefined) continue
-        target.focus()
+        target.focus({ preventScroll: true })
         if (document.activeElement !== target) continue
         // On a single-answer question, landing on an option also selects it: the ring and the
         // answer stay together, so an arrow key is a complete way to choose and `Enter` then

@@ -14,7 +14,7 @@
  * The watcher never acts twice on the same card: a user who arrows to another control, or
  * picks a different option, keeps that choice across re-renders. */
 
-import { activeCard } from './dom.js'
+import { activeCard, pagerLabel } from './dom.js'
 import type { InteractionCard } from './dom.js'
 
 export interface CardDefaultsOptions {
@@ -128,8 +128,11 @@ export function watchCardDefaults(options: CardDefaultsOptions): () => void {
 
   /** A card's identity plus its current page: a page turn reuses the same frame element. */
   const pageKey = (card: InteractionCard): string => {
-    const pager = card.element.querySelector('footer')?.textContent ?? ''
-    return `${card.kind}:${pager.trim()}`
+    // Only the pager counts. The footer also carries a live status line ("Please complete this
+    // question first.", a countdown, an error), and keying on its whole text would read every
+    // such message as a page turn and re-run the default on top of the user's own answer.
+    const label = pagerLabel(card.element)
+    return `${card.kind}:${label === null ? '' : label.join('/')}`
   }
 
   const settle = (): void => {

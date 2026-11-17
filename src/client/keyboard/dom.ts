@@ -125,22 +125,39 @@ export function isMultiSelect(card: HTMLElement): boolean {
 }
 
 /**
+ * The card's pager label, read as `[current, total]`.
+ *
+ * The shipped card renders `index + 1` and the question count in a footer `span`. This is the
+ * only place that scrapes it: the paging guard and the card watcher both key off the same
+ * label, and a second copy of the pattern would silently disagree with this one the next time
+ * DSH changes the footer.
+ *
+ * @param card - the `[data-question-key]` frame.
+ * @returns the page number and the question count, or null when there is no readable pager.
+ */
+export function pagerLabel(card: HTMLElement): [number, number] | null {
+  const footer = card.querySelector('footer')
+  if (footer === null) return null
+  const match = /(\d+)\s*\/\s*(\d+)/u.exec(footer.textContent ?? '')
+  if (match === null) return null
+  const current = Number(match[1])
+  const total = Number(match[2])
+  if (!Number.isFinite(current) || !Number.isFinite(total)) return null
+  return [current, total]
+}
+
+/**
  * How many questions the card currently holds, from its `n / total` pager label.
  *
- * The shipped card renders `index + 1` and the question count in a footer `span`. A batch of
- * more than one is the case where selecting an option also turns the page, so a caller can
- * tell "one question" from "the first of several".
+ * A batch of more than one is the case where selecting an option also turns the page, so a
+ * caller can tell "one question" from "the first of several".
  *
  * @param card - the `[data-question-key]` frame.
  * @returns the total question count, or 1 when the pager cannot be read.
  */
 export function questionCount(card: HTMLElement): number {
-  const footer = card.querySelector('footer')
-  if (footer === null) return 1
-  const match = /(\d+)\s*\/\s*(\d+)/u.exec(footer.textContent ?? '')
-  if (match === null) return 1
-  const total = Number(match[2])
-  return Number.isFinite(total) && total > 0 ? total : 1
+  const label = pagerLabel(card)
+  return label !== null && label[1] > 0 ? label[1] : 1
 }
 
 /**
@@ -178,7 +195,7 @@ export function answeredOption(card: HTMLElement): HTMLElement | undefined {
 }
 
 /** The free-text answer field carrying a draft, or null when it is empty or absent. */
-function customAnswer(card: HTMLElement): HTMLInputElement | HTMLTextAreaElement | null {
+export function customAnswer(card: HTMLElement): HTMLInputElement | HTMLTextAreaElement | null {
   const custom = card.querySelector<HTMLInputElement | HTMLTextAreaElement>('[data-question-scroll] input, [data-question-scroll] textarea')
   return custom !== null && custom.value.trim() !== '' ? custom : null
 }

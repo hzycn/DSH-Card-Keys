@@ -59,6 +59,31 @@ describe('question default option', () => {
     expect(fixture.options[0]?.getAttribute('aria-checked')).toBe('true')
   })
 
+  it('keeps the ring on the first option when the click re-renders the card', async () => {
+    // Clicking an option changes the card's state, and that render can replace the option nodes,
+    // taking the focus with them. The card then looks answered with no ring anywhere — the
+    // regression this test pins down.
+    const fixture = mountQuestionCard()
+    for (const option of fixture.options) {
+      option.addEventListener('click', () => {
+        // Stand in for the shipped re-render: swap every option for a fresh node.
+        for (const current of [...fixture.options]) {
+          const fresh = current.cloneNode(true) as HTMLButtonElement
+          current.replaceWith(fresh)
+        }
+        const live = [...fixture.card.querySelectorAll<HTMLButtonElement>('button[role="radio"]')]
+        fixture.options.length = 0
+        fixture.options.push(...live)
+        fixture.options.forEach((node, index) => {
+          node.addEventListener('click', () => { fixture.clicks.push(`option-${String(index + 1)}`) })
+        })
+      }, { once: true })
+    }
+    watching()
+    await frame()
+    expect(document.activeElement).toBe(fixture.options[0])
+  })
+
   it('adopts a card that was already on screen when the watcher started', () => {
     const fixture = mountAnsweredQuestion()
     watching()
@@ -88,6 +113,32 @@ describe('question default option', () => {
     fixture.card.append(document.createElement('span'))
     await frame()
     expect(fixture.clicks).toEqual(['option-1', 'option-3'])
+  })
+
+  it('is not retriggered by a footer status message', async () => {
+    // The footer carries a live status line beside the pager ("Please complete this question
+    // first.", a countdown, an error). Keying the handled card on the footer's whole text —
+    // which the watcher used to do — read every such message as a page turn, and on a paged
+    // card that meant re-running the default: the first option was clicked again over the
+    // user's own answer, through the rollback.
+    const fixture = mountQuestionCard(document.body, 'q1', 3)
+    fixture.setPage(1, 3)
+    for (const option of fixture.options) {
+      option.addEventListener('click', () => {
+        for (const other of fixture.options) other.setAttribute('aria-checked', String(other === option))
+      })
+    }
+    watching()
+    await flush()
+    expect(fixture.clicks).toEqual(['option-1'])
+    // The user picks a different option; the default must never come back for it.
+    fixture.options[2]?.click()
+    fixture.clicks.length = 0
+    const status = fixture.card.querySelector('[role="status"]')
+    status!.textContent = 'Please complete this question first.'
+    await frame()
+    expect(fixture.clicks).toEqual([])
+    expect(fixture.options[2]?.getAttribute('aria-checked')).toBe('true')
   })
 
   it('never overwrites an answer the card already carries', async () => {
@@ -188,38 +239,37 @@ describe('question default option', () => {
   })
 })
 
-describe('multi-question cards stay neutral', () => {
+describe('multi-question cards answer and ring their first option', () => {
   it('reads the question count from the pager label', () => {
     expect(questionCount(mountQuestionCard(document.body, 'q1', 3).card)).toBe(3)
     expect(questionCount(mountQuestionCard(document.body, 'q2').card)).toBe(1)
   })
 
-  it('neither selects nor focuses an option on a multi-question card', async () => {
-    // Selecting here would make the shipped handler turn the page by itself, so a default on
-    // every page would walk the whole batch. A ring alone would read as a default the user
-    // never gave, and DSH itself leaves option questions unfocused — so the page opens
-    // neutral and the user's own digit or arrow starts the interaction.
+  it('selects and rings the first option without turning the page', async () => {
+    // The card opens showing exactly what Enter would submit, like the single-question card. The
+    // click must not leave the page: a plain click would make the shipped handler advance.
     const fixture = mountQuestionCard(document.body, 'q1', 3)
+    fixture.setPage(1, 3)
     watching()
     await flush()
-    expect(fixture.clicks).toEqual([])
-    expect(fixture.options[0]?.getAttribute('aria-checked')).toBe('false')
-    expect(document.activeElement).not.toBe(fixture.options[0])
+    expect(fixture.clicks).toContain('option-1')
+    expect(fixture.page()).toBe(1)
+    expect(document.activeElement).toBe(fixture.options[0])
   })
 
-  it('keeps every following page neutral too', async () => {
-    // A page turn re-renders inside the same frame element, so the watcher treats each page
-    // separately; none of them may place a ring or a selection.
+  it('answers and rings the first option of every following page too', async () => {
     const fixture = mountQuestionCard(document.body, 'q1', 3)
+    fixture.setPage(1, 3)
     watching()
     await flush()
 
+    fixture.options[1]?.focus()
     const pager = fixture.card.querySelector('footer span')
     if (pager !== null) pager.textContent = '2 / 3'
     fixture.card.append(document.createElement('span'))
     await frame()
-    expect(fixture.clicks).toEqual([])
-    expect(document.activeElement).not.toBe(fixture.options[0])
+    expect(fixture.page()).toBe(2)
+    expect(document.activeElement).toBe(fixture.options[0])
   })
 
   it('still selects on a single-question card', async () => {
@@ -228,5 +278,24 @@ describe('multi-question cards stay neutral', () => {
     await flush()
     expect(fixture.clicks).toEqual(['option-1'])
     expect(document.activeElement).toBe(fixture.options[0])
+  })
+})
+
+describe('multi-select cards take the ring but no answer', () => {
+  it('puts the ring on the first option without checking it', async () => {
+    const fixture = mountQuestionCard(document.body, 'ms', 1, true)
+    watching()
+    await flush()
+    expect(fixture.clicks).toEqual([])
+    expect(fixture.options[0]?.getAttribute('aria-checked')).toBe('false')
+    expect(document.activeElement).toBe(fixture.options[0])
+  })
+
+  it('leaves the ring alone while a user answer is in progress', async () => {
+    const fixture = mountQuestionCard(document.body, 'ms2', 1, true)
+    fixture.custom.value = 'typing my own'
+    watching()
+    await flush()
+    expect(document.activeElement).not.toBe(fixture.options[0])
   })
 })

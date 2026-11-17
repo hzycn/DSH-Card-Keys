@@ -152,13 +152,16 @@ describe('the single-answer paths are untouched', () => {
     expect(isMultiSelect(mountQuestionCard(document.body, 'paged', 3).card)).toBe(false)
   })
 
-  it('a multi-select question still defaults to nothing', async () => {
+  it('a multi-select question takes the ring but checks nothing', async () => {
     const fixture = mountMultiSelect()
     watching()
     await flush()
+    // No answer is invented: a checked box would be a choice the user never made, and the
+    // answer is additive — it grows with deliberate Space presses from here.
     expect(fixture.clicks).toEqual([])
     expect(fixture.options[0]?.getAttribute('aria-checked')).toBe('false')
-    expect(document.activeElement).not.toBe(fixture.options[0])
+    // The ring does land on the first option, so the arrows and Space have a visible origin.
+    expect(document.activeElement).toBe(fixture.options[0])
   })
 })
 
@@ -186,12 +189,39 @@ describe('arrows only move the ring in a multi-select question', () => {
     expect(fixture.clicks).toEqual([])
   })
 
-  it('still selects with a digit, which is an explicit choice', () => {
+  it('moves the ring to a digit without checking it', () => {
+    // A multi-select option is a toggle, and the card's grammar is "navigate, Space to check,
+    // Enter to submit". A digit that checked on arrival would put an answer in the box the user
+    // has not committed to, and pressing it twice would silently take that answer back.
     const fixture = mountMultiSelect()
     const fake = install()
     const consume = fake.emit('Digit2')
-    expect(fixture.clicks).toEqual(['option-2'])
+    expect(document.activeElement).toBe(fixture.options[1])
+    expect(fixture.clicks).toEqual([])
+    expect(fixture.options[1]?.getAttribute('aria-checked')).toBe('false')
     expect(consume).toHaveBeenCalledOnce()
+  })
+
+  it('checks the option a digit moved to once Space is pressed', () => {
+    const fixture = mountMultiSelect()
+    const fake = install()
+    fake.emit('Digit3')
+    fake.emit('Space')
+    expect(fixture.clicks).toEqual(['option-3'])
+    expect(fixture.options[2]?.getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('builds a set across digits and Space', () => {
+    const fixture = mountMultiSelect()
+    const fake = install()
+    fake.emit('Digit1')
+    fake.emit('Space')
+    fake.emit('Digit3')
+    fake.emit('Space')
+    expect(fixture.clicks).toEqual(['option-1', 'option-3'])
+    expect(fixture.options[0]?.getAttribute('aria-checked')).toBe('true')
+    expect(fixture.options[1]?.getAttribute('aria-checked')).toBe('false')
+    expect(fixture.options[2]?.getAttribute('aria-checked')).toBe('true')
   })
 })
 
@@ -231,6 +261,9 @@ describe('Space toggles the focused option', () => {
   it('leaves Space alone when no option has the ring', () => {
     mountMultiSelect()
     const fake = install()
+    // The default ring now lands on the first option, so drop it deliberately: Space with no
+    // ring has nowhere to toggle and must keep its normal job.
+    ;(document.activeElement as HTMLElement | null)?.blur()
     const consume = fake.emit('Space')
     expect(consume).not.toHaveBeenCalled()
   })
